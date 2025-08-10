@@ -17,7 +17,7 @@
 		"vscode": "^1.100.0"
 	},
 	"activationEvents": [
-		"onLanguage:plaintext"
+		"onLanguage:yaml"
 	],
 	"main": "./client/out/extension",
 	"contributes": {
@@ -39,10 +39,25 @@
 						"messages",
 						"verbose"
 					],
-					"default": "off",
+					"default": "verbose",
 					"description": "Traces the communication between VS Code and the language server."
 				}
-			}
+			},
+			"languages": [
+				{
+					"id": "yaml",
+					"extensions": [
+						".yaml",
+						".yml"
+					],
+					"aliases": [
+						"YAML",
+						"YML",
+						"yaml",
+						"yml"
+					]
+				}
+			]
 		}
 	},
 	"scripts": {
@@ -57,10 +72,14 @@
 		"@eslint/js": "^9.13.0",
 		"@stylistic/eslint-plugin": "^2.9.0",
 		"@types/mocha": "^10.0.6",
-		"@types/node": "^22",
-		"eslint": "^9.13.0",
+		"@types/node": "^20",
+		"eslint": "^9.33.0",
 		"mocha": "^10.3.0",
-		"typescript": "^5.9.2",
-		"typescript-eslint": "^8.39.0"
+		"typescript": "^5.8.2",
+		"typescript-eslint": "^8.26.0"
+	},
+	"dependencies": {
+		"vscode-uri": "^3.1.0",
+		"yaml": "^2.8.1"
 	}
 }

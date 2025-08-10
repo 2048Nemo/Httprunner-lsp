@@ -16,12 +16,13 @@ import {
 	TextDocumentSyncKind,
 	InitializeResult,
 	DocumentDiagnosticReportKind,
-	type DocumentDiagnosticReport
+	type DocumentDiagnosticReport,
 } from 'vscode-languageserver/node';
 
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument';
+import { definitionRouter } from './features/definition';
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -55,13 +56,16 @@ connection.onInitialize((params: InitializeParams) => {
 		capabilities: {
 			textDocumentSync: TextDocumentSyncKind.Incremental,
 			// Tell the client that this server supports code completion.
+			
 			completionProvider: {
 				resolveProvider: true
 			},
 			diagnosticProvider: {
 				interFileDependencies: false,
 				workspaceDiagnostics: false
-			}
+			},
+			definitionProvider: true, // 显式声明支持定义跳转
+			hoverProvider: true, // 显式声明支持悬停提示
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -156,6 +160,7 @@ connection.languages.diagnostics.on(async (params) => {
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent(change => {
+	connection.window.showInformationMessage(`Document changed: ${change.document.uri}`);
 	validateTextDocument(change.document);
 });
 
@@ -244,6 +249,8 @@ connection.onCompletionResolve(
 		return item;
 	}
 );
+
+definitionRouter(connection, documents);
 
 // Make the text document manager listen on the connection
 // for open, change and close text document events
