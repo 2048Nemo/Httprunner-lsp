@@ -17,6 +17,8 @@ import {
 	InitializeResult,
 	DocumentDiagnosticReportKind,
 	type DocumentDiagnosticReport,
+	DocumentHighlight,
+	DocumentHighlightKind,
 } from 'vscode-languageserver/node';
 
 import {
@@ -65,6 +67,7 @@ connection.onInitialize((params: InitializeParams) => {
 				workspaceDiagnostics: false
 			},
 			definitionProvider: true, // 显式声明支持定义跳转
+			documentHighlightProvider: true, // 显式声明支持文档高亮
 			hoverProvider: true, // 显式声明支持悬停提示
 		}
 	};
@@ -249,6 +252,47 @@ connection.onCompletionResolve(
 		return item;
 	}
 );
+
+connection.onDocumentHighlight((params, _token) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) {
+    return [];
+  }
+  
+  const offset = document.offsetAt(params.position);
+  const text = document.getText();
+  const highlights: DocumentHighlight[] = [];
+
+  // 匹配类似 "api: api/esignManage/OrgUser/org/getOrganizationByOrganizationCode.yml" 的完整路径
+  const apiPathPattern = /api:\s*[^\s]+\.yml/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = apiPathPattern.exec(text)) !== null) {
+    const startOffset = match.index;
+    const endOffset = startOffset + match[0].length;
+    
+    // 检查光标是否在匹配的路径范围内
+    if (offset >= startOffset && offset <= endOffset) {
+      // 高亮整个路径
+      highlights.push({
+        range: {
+          start: document.positionAt(startOffset),
+          end: document.positionAt(endOffset)
+        },
+        kind: DocumentHighlightKind.Text
+      });
+      // 找到匹配项后退出循环
+      break;
+    }
+  }
+  
+  // 添加调试日志
+  if (highlights.length > 0) {
+    connection.console.log(`Document highlight found at position ${offset}`);
+  }
+  
+  return highlights;
+});
 
 definitionRouter(connection, documents);
 
