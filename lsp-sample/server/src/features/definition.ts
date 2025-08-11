@@ -1,6 +1,6 @@
 import { Connection, DefinitionParams, Location, Position } from 'vscode-languageserver';
 import { TextDocuments } from 'vscode-languageserver/node';
-import { parseDocument, Node } from 'yaml';
+import {parseDocument, Node } from 'yaml';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -29,16 +29,16 @@ export function definitionRouter(
       default:
         // 示例：返回 api.yaml 的跳转
         { 
-			const location = "/Users/nemolexist/WebstormProjects/testfile/api.yaml";
-        	connection.window.showInformationMessage(`server goto definition: ${params.textDocument.uri} + ${location}`);
-        	return {
-        	  uri: URI.file(location).toString(),
-        	  range: {
-        	    start: { line: 0, character: 0 },
-        	    end: { line: 0, character: 10 }
-        	  }
-        	}; 
-		}
+		  	const location = "/Users/nemolexist/WebstormProjects/testfile/api.yaml";
+          	connection.window.showInformationMessage(`server goto definition: ${params.textDocument.uri} + ${location}`);
+          	return {
+          	  uri: URI.file(location).toString(),
+          	  range: {
+          	    start: { line: 0, character: 0 },
+          	    end: { line: 0, character: 10 }
+          	  }
+          	}; 
+		  }
     }
   });
 }
@@ -52,26 +52,12 @@ function handleYamlDefinition(
   try {
     const text = document.getText();
     const yamlDoc = parseDocument(text);
-    const targetValue = findYamlTargetByPosition(yamlDoc.contents, position, document);
-    if (!targetValue) {
-      return null;
-    }
-    const docUri = URI.parse(document.uri);
-    const workspaceFolder = path.dirname(docUri.fsPath);
-    const targetPath = path.resolve(workspaceFolder, targetValue);
-
-    if (!fs.existsSync(targetPath)) {
-      connection.console.error(`路径不存在: ${targetPath}`);
+    if (!yamlDoc.contents) {
+      connection.window.showInformationMessage('YAML文档内容为空');
       return null;
     }
 
-    return {
-      uri: URI.file(targetPath).toString(),
-      range: {
-        start: { line: 0, character: 0 },
-        end: { line: 0, character: 10 }
-      }
-    };
+    return handlePathFileDefinition(yamlDoc.contents, position, document);
   } catch (error) {
     if (error instanceof Error) {
       connection.console.error('YAML解析失败: ' + error.message);
@@ -80,6 +66,28 @@ function handleYamlDefinition(
     }
     return null;
   }
+}
+// 示例：处理路径文件之间跳转
+function handlePathFileDefinition(yamlDocNode: Node | null, position: Position, document: TextDocument): Location | null{
+	const targetValue = findYamlTargetByPosition(yamlDocNode, position, document);
+	if (!targetValue) {
+		return null;
+	}
+	const docUri = URI.parse(document.uri);
+	const workspaceFolder = path.dirname(docUri.fsPath);
+	const targetPath = path.resolve(workspaceFolder, targetValue);
+
+	if (!fs.existsSync(targetPath)) {
+		return null;
+	}
+
+	return {
+		uri: URI.file(targetPath).toString(),
+		range: {
+			start: { line: 0, character: 0 },
+			end: { line: 0, character: 10 }
+		}
+	};
 }
 
 // 根据位置查找YAML中对应的目标字段值
