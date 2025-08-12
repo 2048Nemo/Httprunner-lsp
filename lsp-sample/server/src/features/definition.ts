@@ -1,6 +1,6 @@
 import { Connection, DefinitionParams, Location, Position } from 'vscode-languageserver';
 import { TextDocuments } from 'vscode-languageserver/node';
-import {parseDocument, Node } from 'yaml';
+import {parseDocument,  visit} from 'yaml';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -56,8 +56,22 @@ function handleYamlDefinition(
       connection.window.showInformationMessage('YAML文档内容为空');
       return null;
     }
-
-    return handlePathFileDefinition(yamlDoc.contents, position, document);
+	  // 尝试路径文件跳转
+	  const pathDefinition = handlePathFileDefinition(position, document);
+	  if (pathDefinition) {
+		  return pathDefinition;
+	  }
+	  // 尝试变量引用跳转
+	  const varibleDefinition = handleVaribleDefinition(position, document);
+	  if (varibleDefinition) {
+		  return varibleDefinition;
+	  }
+	  // 尝试插值函数（debugtalk）跳转
+	  const interpolationDefinition = handleInterpolationDefinition(position, document);
+	  if (interpolationDefinition) {
+		  return interpolationDefinition;
+	  }
+	  return null;
   } catch (error) {
     if (error instanceof Error) {
       connection.console.error('YAML解析失败: ' + error.message);
@@ -68,8 +82,8 @@ function handleYamlDefinition(
   }
 }
 // 示例：处理路径文件之间跳转
-function handlePathFileDefinition(yamlDocNode: Node | null, position: Position, document: TextDocument): Location | null{
-	const targetValue = findYamlTargetByPosition(yamlDocNode, position, document);
+function handlePathFileDefinition( position: Position, document: TextDocument): Location | null{
+	const targetValue = findYamlTargetByPosition(position, document);
 	if (!targetValue) {
 		return null;
 	}
@@ -90,9 +104,55 @@ function handlePathFileDefinition(yamlDocNode: Node | null, position: Position, 
 	};
 }
 
+
+function handleVaribleDefinition(position: Position, document: TextDocument): Location | null {
+	const targetValuePosition = findInnerYamlTargetByVarible(position, document);
+	let outerTargetValue:Location | null = null;
+	let result: Location | null = targetValuePosition;
+
+	if ( result === null){
+		outerTargetValue = findOuterYamlTargetByVarible(position, document);
+		if (outerTargetValue === null) {
+			return null;
+		}
+		result = outerTargetValue;
+	}
+
+	return {
+		uri: result.uri.toString(),
+		range: {
+			start: { line: result.range.start.line, character: result.range.start.character },
+			end: { line: result.range.end.line, character: result.range.end.character }
+		}
+	};
+}
+
+
+//处理插值函数处理
+function handleInterpolationDefinition(position: Position, document: TextDocument): Location | null{
+	const targetValuePosition = findInnerYamlTargetByInterpolation(position, document);
+	let outerTargetValue:Location | null = null;
+	let result: Location | null = targetValuePosition;
+
+	if ( result === null){
+		outerTargetValue = findOuterYamlTargetByInterpolation(position, document);
+		if (outerTargetValue === null) {
+			return null;
+		}
+		result = outerTargetValue;
+	}
+
+	return {
+		uri: result.uri.toString(),
+		range: {
+			start: { line: result.range.start.line, character: result.range.start.character },
+			end: { line: result.range.end.line, character: result.range.end.character }
+		}
+	};
+}
+
 // 根据位置查找YAML中对应的目标字段值
 function findYamlTargetByPosition(
-  _node: Node | null,
   position: Position,
   document: TextDocument
 ): string | null {
@@ -111,6 +171,152 @@ function findYamlTargetByPosition(
   }
   return null;
 }
+
+
+
+//查找内置变量定义位置
+function findInnerYamlTargetByVarible(position: Position,document: TextDocument): Location | null {
+  	const lineStart = { line: position.line, character: 0 };
+  	const lineEnd = { line: position.line + 1, character: 0 };
+  	const lineText = document.getText({ start: lineStart, end: lineEnd });
+  	const regex = /\${([^}]+)}/;
+
+	const match = regex.exec(lineText);
+	  if (match) {
+		  const value = match[1];
+		  const valueStart = lineText.indexOf(value);
+		  const valueEnd = valueStart + value.length;
+		  if (position.character >= valueStart && position.character <= valueEnd) {
+			  //根据 value 查找全文中变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
+			  const varDefinition = parseDocument(document.getText());
+			  	visit(varDefinition, {
+					  Pair(_, pair, node) {
+						  if (pair.key && pair.key === '3') {return visit.REMOVE;}
+					  },
+					  Scalar(key, node, parent) {
+						  // 获取parent节点的key值判断
+						  if (parent && 'key' in parent && parent.key) {
+							  const parentKey = parent.key.toString();
+						  }
+						  if (
+							  parent &&
+							  node.type === 'PLAIN'
+						  ) {
+							  node.type = 'QUOTE_SINGLE';
+						  }
+					  }
+			  	});
+			  return {
+				  uri: document.uri.toString(),
+				  range: {
+					  start: { line: position.line, character: position.character },
+					  end: { line: position.line, character: position.character }
+				  }
+			  };
+		  }
+	  }
+	  return null;
+ }
+
+ // 查找外部变量定义位置
+ function findOuterYamlTargetByVarible(position: Position ,document: TextDocument): Location | null {
+  	if (position) {
+  		const lineStart = { line: position.line, character: 0 };
+  		const lineEnd = { line: position.line + 1, character: 0 };
+  		const lineText = document.getText({ start: lineStart, end: lineEnd });
+  		const regex = /\${()}/;
+  		const match = regex.exec(lineText);
+		  if (match) {
+			  const value = match[1];
+			  const valueStart = lineText.indexOf(value);
+			  const valueEnd = valueStart + value.length;
+			  if (position.character >= valueStart && position.character <= valueEnd) {
+				  //根据 value 获取变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
+				  const varDefinition = parseDocument(document.getText());
+				  visit(varDefinition, {});
+			  }
+		  }
+  	}
+	  return {
+		  uri: document.uri.toString(),
+		  range: {
+			  start: { line: position.line, character: position.character },
+			  end: { line: position.line, character: position.character }
+		  }
+	  };
+ }
+
+
+// 插值语法查找函数
+function findInnerYamlTargetByInterpolation(position: Position,document: TextDocument): Location | null {
+  	const lineStart = { line: position.line, character: 0 };
+  	const lineEnd = { line: position.line + 1, character: 0 };
+  	const lineText = document.getText({ start: lineStart, end: lineEnd });
+  	const regex = /\${([^}]+)}/;
+
+	const match = regex.exec(lineText);
+	  if (match) {
+		  const value = match[1];
+		  const valueStart = lineText.indexOf(value);
+		  const valueEnd = valueStart + value.length;
+		  if (position.character >= valueStart && position.character <= valueEnd) {
+			  //根据 value 查找全文中变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
+			  const varDefinition = parseDocument(document.getText());
+			  	visit(varDefinition, {
+					  Pair(_, pair, node) {
+						  if (pair.key && pair.key === '3') {return visit.REMOVE;}
+					  },
+					  Scalar(key, node, parent) {
+						  // 获取parent节点的key值判断
+						  if (parent && 'key' in parent && parent.key) {
+							  const parentKey = parent.key.toString();
+						  }
+						  if (
+							  parent &&
+							  node.type === 'PLAIN'
+						  ) {
+							  node.type = 'QUOTE_SINGLE';
+						  }
+					  }
+			  	});
+			  return {
+				  uri: document.uri.toString(),
+				  range: {
+					  start: { line: position.line, character: position.character },
+					  end: { line: position.line, character: position.character }
+				  }
+			  };
+		  }
+	  }
+	  return null;
+ }
+
+ function findOuterYamlTargetByInterpolation(position: Position ,document: TextDocument): Location | null {
+  	if (position) {
+  		const lineStart = { line: position.line, character: 0 };
+  		const lineEnd = { line: position.line + 1, character: 0 };
+  		const lineText = document.getText({ start: lineStart, end: lineEnd });
+  		const regex = /\${()}/;
+  		const match = regex.exec(lineText);
+		  if (match) {
+			  const value = match[1];
+			  const valueStart = lineText.indexOf(value);
+			  const valueEnd = valueStart + value.length;
+			  if (position.character >= valueStart && position.character <= valueEnd) {
+				  //根据 value 获取变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
+				  const varDefinition = parseDocument(document.getText());
+				  visit(varDefinition, {});
+			  }
+		  }
+  	}
+	  return {
+		  uri: document.uri.toString(),
+		  range: {
+			  start: { line: position.line, character: position.character },
+			  end: { line: position.line, character: position.character }
+		  }
+	  };
+ }
 
 // Python文件定义跳转处理
 function handlePythonDefinition(
