@@ -5,10 +5,12 @@ import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { DebugTalkIndexer } from '../utils/debugtalkIndexer';
 
 export function definitionRouter(
   connection: Connection,
-  documents: TextDocuments<TextDocument>
+  documents: TextDocuments<TextDocument>,
+  debugtalkindexer: DebugTalkIndexer
 ) {
   connection.onDefinition(async (params: DefinitionParams): Promise<Location | null> => {
     const document = documents.get(params.textDocument.uri);
@@ -21,7 +23,7 @@ export function definitionRouter(
       case 'yml':
         connection.console.log('Processing YAML definition request');
         connection.console.log(`Handling YAML definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
-        return handleVariableDefinition(document, params.position, connection);
+        return handleVariableDefinition(document, params.position, connection,debugtalkindexer);
       case 'python':
 		connection.console.log('Processing Python definition request');
 		connection.console.log(`Handling Python definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
@@ -40,7 +42,8 @@ export function definitionRouter(
 function handleVariableDefinition(
   document: TextDocument,
   position: Position,
-  connection: Connection
+  connection: Connection,
+  debugtalkIndexer: DebugTalkIndexer
 ): Location | null {
   try {
     connection.console.log('Attempting to find variable definition');
@@ -51,10 +54,15 @@ function handleVariableDefinition(
       return path;
     }
     //查找变量定义
-    const variable =findYamlDefinition(position, document);
+    const variable =findYamlVaribleDefinition(position, document);
 	  if(variable){
       connection.console.log('Found variable definition: ' + variable.uri);
       return variable;
+    }
+    const debugtalk =findDebugtalkDefinition(position, document,debugtalkIndexer);
+    if (debugtalk) {
+      connection.console.log('Found debugtalk definition: ' + debugtalk.uri);
+      return debugtalk;
     }
     return null;
   } catch (error) {
@@ -184,7 +192,7 @@ function findVariableDefinitionRange(doc: Document, keyName: string, parentKeyNa
  * @param document 当前文档
  * @returns {Location | null} 定义的位置
  */
-export function findYamlDefinition(position: Position, document: TextDocument): Location | null {
+export function findYamlVaribleDefinition(position: Position, document: TextDocument): Location | null {
     // 1. 获取当前行的文本
     const lineText = document.getText({
         start: { line: position.line, character: 0 },
@@ -245,5 +253,51 @@ function handleEnvDefinition(
   _document: TextDocument,
   _position: Position
 ): Location | null {
+  return null;
+}
+
+/**
+ * 查找插值语法 ${...} 中的函数调用，并返回其在 debugtalk.py 中的定义位置（占位）。
+ * @param position 光标位置
+ * @param document 当前文档
+ * @returns {Location | null} 在 debugtalk.py 中的位置
+ */
+export function findDebugtalkDefinition(position: Position, document: TextDocument, debugtalkindexer: DebugTalkIndexer): Location | null {
+  // 1. 获取当前行的文本
+  const lineText = document.getText({
+    start: { line: position.line, character: 0 },
+    end: { line: position.line + 1, character: 0 }
+  });
+
+  // 2. 使用新的正则表达式，并添加 'g' 标志以遍历行内所有匹配项
+  const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\}/g;
+  let match;
+
+  // 3. 循环遍历当前行所有的函数调用，以确定光标在哪一个上面
+  while ((match = regex.exec(lineText)) !== null) {
+    // match[0] 是整个匹配到的字符串, e.g., "${sleep($second)}"
+    // match[1] 是我们捕获的函数名, e.g., "sleep"
+    
+    const functionName = match[1];
+    const expressionStart = match.index; // "${" 的起始位置
+    const expressionEnd = expressionStart + match[0].length; // "}" 的结束位置
+
+    // 4. 检查光标是否在当前匹配的 ${...} 表达式的范围内
+    if (position.character >= expressionStart && position.character <= expressionEnd) {
+      console.log(`光标位于函数 "${functionName}" 的调用上。`);
+
+      // 5. 构造指向 debugtalk.py 文件的 URI 和一个起始位置
+      // 注意：这里只是一个示例，它将总是跳转到 debugtalk.py 的文件开头。
+      // 在一个更完整的实现中，您可能需要解析 debugtalk.py 文件来找到函数的确切行号。
+      // const workspaceFolder = path.dirname(URI.parse(document.uri).fsPath);
+      // const targetUri = URI.file(path.join(workspaceFolder, 'debugtalk.py')).toString();
+
+      const result = debugtalkindexer.getDefinition(functionName);
+      console.log(`查找函数 "${functionName}" 的定义位置: `, result);
+      return result ? result : null;
+    }
+  }
+
+  // 如果光标不在任何一个函数调用上，则返回 null
   return null;
 }

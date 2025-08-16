@@ -22,8 +22,11 @@ import {
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument';
+import { URI } from 'vscode-uri';
 import { definitionRouter } from './features/definition';
 import { documentHighlightRouter } from './features/highlight';
+import { DebugTalkIndexer } from './utils/debugtalkIndexer'; // 引入我们的索引器
+import { YamlDocumentManager } from './features/yamlDocumentManager'; // 引入新的管理器
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -35,6 +38,12 @@ const documents = new TextDocuments(TextDocument);
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
+
+// --- 全局实例 ---
+// 这两个实例在服务器生命周期内只会创建一次
+let indexer: DebugTalkIndexer;
+let yamlDocManager: YamlDocumentManager;
+
 
 connection.onInitialize((params: InitializeParams) => {
 	const capabilities = params.capabilities;
@@ -52,6 +61,12 @@ connection.onInitialize((params: InitializeParams) => {
 		capabilities.textDocument.publishDiagnostics &&
 		capabilities.textDocument.publishDiagnostics.relatedInformation
 	);
+
+	const workspaceRoot = URI.parse(params.workspaceFolders![0].uri).fsPath;
+    // --- 只执行一次的初始化 ---
+    console.log("Language server is initializing ONCE.");
+    indexer = new DebugTalkIndexer(workspaceRoot);
+    yamlDocManager = new YamlDocumentManager();
 
 	const result: InitializeResult = {
 		capabilities: {
@@ -90,6 +105,8 @@ connection.onInitialized(() => {
 			connection.console.log('Workspace folder change event received.');
 		});
 	}
+	documentHighlightRouter(connection, documents);
+	definitionRouter(connection, documents,indexer);
 });
 
 // The example settings
@@ -136,11 +153,27 @@ function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
 	return result;
 }
 
-// Only keep settings for open documents
-documents.onDidClose(e => {
-	documentSettings.delete(e.document.uri);
+// --- 文件事件处理 ---
+// 当一个新文档被打开时触发
+documents.onDidOpen(change => {
+    console.log(`Document opened: ${change.document.uri}`);
+    yamlDocManager.update(change.document);
 });
 
+// 当已打开的文档内容改变时触发
+documents.onDidChangeContent(change => {
+    console.log(`Document changed: ${change.document.uri}`);
+    yamlDocManager.update(change.document);
+    // 在这里可以触发实时的语法检查等
+});
+
+// 当文档被关闭时触发
+documents.onDidClose(change => {
+    console.log(`Document closed: ${change.document.uri}`);
+    yamlDocManager.remove(change.document.uri);
+    // 清除该文件的错误诊断
+    connection.sendDiagnostics({ uri: change.document.uri, diagnostics: [] });
+});
 
 connection.languages.diagnostics.on(async (params) => {
 	const document = documents.get(params.textDocument.uri);
@@ -252,9 +285,7 @@ connection.onCompletionResolve(
 	}
 );
 
-documentHighlightRouter(connection, documents);
 
-definitionRouter(connection, documents);
 
 // Make the text document manager listen on the connection
 // for open, change and close text document events

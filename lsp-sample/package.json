@@ -17,7 +17,9 @@
 		"vscode": "^1.100.0"
 	},
 	"activationEvents": [
-		"onLanguage:yaml"
+		"onLanguage:yaml",
+		"onLanguage:python",
+		"onLanguage:env"
 	],
 	"main": "./client/out/extension",
 	"contributes": {
@@ -55,6 +57,26 @@
 						"YML",
 						"yaml",
 						"yml"
+					]
+				},
+				{
+					"id": "python",
+					"extensions": [
+						".py"
+					],
+					"aliases": [
+						"Python",
+						"python"
+					]
+				},
+				{
+					"id": "env",
+					"extensions": [
+						".env"
+					],
+					"aliases": [
+						"Env",
+						"env"
 					]
 				}
 			]

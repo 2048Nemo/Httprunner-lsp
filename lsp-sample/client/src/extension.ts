@@ -34,7 +34,7 @@ export function activate(context: ExtensionContext) {
 	// Options to control the language client
 	const clientOptions: LanguageClientOptions = {
 		// Register the server for plain text documents
-		documentSelector: [{ scheme: 'file', language: 'yaml' }],
+		documentSelector: [{ scheme: 'file', language: 'yaml' },{scheme: 'file', language: 'python'},{scheme: 'file', language: 'env'}],
 		synchronize: {
 			// Notify the server about file changes to '.clientrc files contained in the workspace
 			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
