@@ -1,6 +1,6 @@
 import { Connection, DefinitionParams, Location, Position } from 'vscode-languageserver';
 import { TextDocuments } from 'vscode-languageserver/node';
-import {parseDocument,  visit} from 'yaml';
+import {parseDocument,  visit,Document,Pair,isScalar} from 'yaml';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,68 +19,54 @@ export function definitionRouter(
     switch (document.languageId) {
       case 'yaml':
       case 'yml':
-        connection.console.log('接收到yaml跳转请求');
-        connection.console.log(`处理YAML定义跳转: ${document.uri} 位置: ${params.position.line}:${params.position.character}`);
-        return handleYamlDefinition(document, params.position, connection);
+        connection.console.log('Processing YAML definition request');
+        connection.console.log(`Handling YAML definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
+        return handleVariableDefinition(document, params.position, connection);
       case 'python':
-        return handlePythonDefinition(document, params.position);
-      case 'env':
-        return handleEnvDefinition(document, params.position);
-      default:
-        // 示例：返回 api.yaml 的跳转
-        { 
-		  	const location = "/Users/nemolexist/WebstormProjects/testfile/api.yaml";
-          	connection.window.showInformationMessage(`server goto definition: ${params.textDocument.uri} + ${location}`);
-          	return {
-          	  uri: URI.file(location).toString(),
-          	  range: {
-          	    start: { line: 0, character: 0 },
-          	    end: { line: 0, character: 10 }
-          	  }
-          	}; 
-		  }
+		connection.console.log('Processing Python definition request');
+		connection.console.log(`Handling Python definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
+		return handlePythonDefinition(document, params.position);
+	  case 'env':
+		connection.console.log('Processing .env definition request');
+		connection.console.log(`Handling .env definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
+		return handleEnvDefinition(document, params.position);
+		default:
+        return null;
     }
   });
 }
 
-// YAML文件定义跳转处理
-function handleYamlDefinition(
+// YAML variable definition handler - simplified implementation
+function handleVariableDefinition(
   document: TextDocument,
   position: Position,
   connection: Connection
 ): Location | null {
   try {
-    const text = document.getText();
-    const yamlDoc = parseDocument(text);
-    if (!yamlDoc.contents) {
-      connection.window.showInformationMessage('YAML文档内容为空');
-      return null;
+    connection.console.log('Attempting to find variable definition');
+    //查找文件跳转
+    const path =handlePathFileDefinition(position, document);
+    if(path){
+      connection.console.log('Found path file definition: ' + path.uri);
+      return path;
     }
-	  // 尝试路径文件跳转
-	  const pathDefinition = handlePathFileDefinition(position, document);
-	  if (pathDefinition) {
-		  return pathDefinition;
-	  }
-	  // 尝试变量引用跳转
-	  const varibleDefinition = handleVaribleDefinition(position, document);
-	  if (varibleDefinition) {
-		  return varibleDefinition;
-	  }
-	  // 尝试插值函数（debugtalk）跳转
-	  const interpolationDefinition = handleInterpolationDefinition(position, document);
-	  if (interpolationDefinition) {
-		  return interpolationDefinition;
-	  }
-	  return null;
+    //查找变量定义
+    const variable =findYamlDefinition(position, document);
+	  if(variable){
+      connection.console.log('Found variable definition: ' + variable.uri);
+      return variable;
+    }
+    return null;
   } catch (error) {
     if (error instanceof Error) {
-      connection.console.error('YAML解析失败: ' + error.message);
+      connection.console.error('Variable definition search failed: ' + error.message);
     } else {
-      connection.console.error('YAML解析失败: ' + String(error));
+      connection.console.error('Variable definition search failed: ' + String(error));
     }
     return null;
   }
 }
+
 // 示例：处理路径文件之间跳转
 function handlePathFileDefinition( position: Position, document: TextDocument): Location | null{
 	const targetValue = findYamlTargetByPosition(position, document);
@@ -105,51 +91,6 @@ function handlePathFileDefinition( position: Position, document: TextDocument): 
 }
 
 
-function handleVaribleDefinition(position: Position, document: TextDocument): Location | null {
-	const targetValuePosition = findInnerYamlTargetByVarible(position, document);
-	let outerTargetValue:Location | null = null;
-	let result: Location | null = targetValuePosition;
-
-	if ( result === null){
-		outerTargetValue = findOuterYamlTargetByVarible(position, document);
-		if (outerTargetValue === null) {
-			return null;
-		}
-		result = outerTargetValue;
-	}
-
-	return {
-		uri: result.uri.toString(),
-		range: {
-			start: { line: result.range.start.line, character: result.range.start.character },
-			end: { line: result.range.end.line, character: result.range.end.character }
-		}
-	};
-}
-
-
-//处理插值函数处理
-function handleInterpolationDefinition(position: Position, document: TextDocument): Location | null{
-	const targetValuePosition = findInnerYamlTargetByInterpolation(position, document);
-	let outerTargetValue:Location | null = null;
-	let result: Location | null = targetValuePosition;
-
-	if ( result === null){
-		outerTargetValue = findOuterYamlTargetByInterpolation(position, document);
-		if (outerTargetValue === null) {
-			return null;
-		}
-		result = outerTargetValue;
-	}
-
-	return {
-		uri: result.uri.toString(),
-		range: {
-			start: { line: result.range.start.line, character: result.range.start.character },
-			end: { line: result.range.end.line, character: result.range.end.character }
-		}
-	};
-}
 
 // 根据位置查找YAML中对应的目标字段值
 function findYamlTargetByPosition(
@@ -173,151 +114,124 @@ function findYamlTargetByPosition(
 }
 
 
+/**
+ * 在给定位置识别出被 '$' 或 '${...}' 引用的变量名。
+ * 这个函数现在可以处理两种语法。
+ * * @param lineText 当前行的文本
+ * @param position 当前光标位置
+ * @returns { name: string } | null 变量名
+ */
+function getVariableAtPosition(lineText: string, position: Position): { name: string } | null {
+    // 匹配两种模式: $varName or ${...$varName...}
+    // 使用全局匹配来遍历行内所有可能的情况
+    const regex = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    let match;
 
-//查找内置变量定义位置
-function findInnerYamlTargetByVarible(position: Position,document: TextDocument): Location | null {
-  	const lineStart = { line: position.line, character: 0 };
-  	const lineEnd = { line: position.line + 1, character: 0 };
-  	const lineText = document.getText({ start: lineStart, end: lineEnd });
-  	const regex = /\${([^}]+)}/;
+    while ((match = regex.exec(lineText)) !== null) {
+        const varName = match[1];
+        // match.index 是 $ 符号的位置
+        const varStartIndex = match.index; 
+        const varEndIndex = match.index + varName.length + 1;
 
-	const match = regex.exec(lineText);
-	  if (match) {
-		  const value = match[1];
-		  const valueStart = lineText.indexOf(value);
-		  const valueEnd = valueStart + value.length;
-		  if (position.character >= valueStart && position.character <= valueEnd) {
-			  //根据 value 查找全文中变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
-			  const varDefinition = parseDocument(document.getText());
-			  	visit(varDefinition, {
-					  Pair(_, pair, node) {
-						  if (pair.key && pair.key === '3') {return visit.REMOVE;}
-					  },
-					  Scalar(key, node, parent) {
-						  // 获取parent节点的key值判断
-						  if (parent && 'key' in parent && parent.key) {
-							  const parentKey = parent.key.toString();
-						  }
-						  if (
-							  parent &&
-							  node.type === 'PLAIN'
-						  ) {
-							  node.type = 'QUOTE_SINGLE';
-						  }
-					  }
-			  	});
-			  return {
-				  uri: document.uri.toString(),
-				  range: {
-					  start: { line: position.line, character: position.character },
-					  end: { line: position.line, character: position.character }
-				  }
-			  };
-		  }
-	  }
-	  return null;
- }
+        // 检查光标位置是否在当前匹配到的 `$variable` 范围内
+        if (position.character >= varStartIndex && position.character <= varEndIndex) {
+            return { name: varName };
+        }
+    }
+    return null;
+}
 
- // 查找外部变量定义位置
- function findOuterYamlTargetByVarible(position: Position ,document: TextDocument): Location | null {
-  	if (position) {
-  		const lineStart = { line: position.line, character: 0 };
-  		const lineEnd = { line: position.line + 1, character: 0 };
-  		const lineText = document.getText({ start: lineStart, end: lineEnd });
-  		const regex = /\${()}/;
-  		const match = regex.exec(lineText);
-		  if (match) {
-			  const value = match[1];
-			  const valueStart = lineText.indexOf(value);
-			  const valueEnd = valueStart + value.length;
-			  if (position.character >= valueStart && position.character <= valueEnd) {
-				  //根据 value 获取变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
-				  const varDefinition = parseDocument(document.getText());
-				  visit(varDefinition, {});
-			  }
-		  }
-  	}
-	  return {
-		  uri: document.uri.toString(),
-		  range: {
-			  start: { line: position.line, character: position.character },
-			  end: { line: position.line, character: position.character }
-		  }
-	  };
- }
+/**
+ * 在YAML文档中查找特定父键下的变量定义。
+ * (这个函数是我们之前完善的版本，现在是最终形态)
+ * * @param doc - 已解析的 yaml Document 对象。
+ * @param keyName - 要查找的变量名（key）。
+ * @param parentKeyNames - 变量定义可能位于的父键名列表。
+ * @returns {[number, number] | null} - 返回包含绝对偏移量的元组。参考 Yaml 库的 NodeBase 定义的结果队列，resultRange 是一个包含node起始和value结束偏移量的数组。
+ * （这里的偏移量是绝对的number，可以通过 document.getpositionAt实现 Position 对象的转换）
+ */
+function findVariableDefinitionRange(doc: Document, keyName: string, parentKeyNames: string[]): [number, number] | null {
+	let resultRange: [number, number] | null = null;
+  let num = 0;
+  visit(doc, {
+    Scalar(key, node, path) {
+      if (node.value === keyName && key === 'key') {
+        //这里需要按照路径一次迭代寻找，如果是 yamlSeq /yamlmap 这种场景就需要跳过节点向前寻找，总之需要考虑一下其他 Node 子类的这种容器节点情况（YamlSeq/map/）
+        for( let i = path.length - 1; i >= 0; i--) {
+          // 获取当前节点元素的父元素,必须是pair 类型
+          const parentPair = path[i];
+
+          if(parentPair && parentPair instanceof Pair && isScalar(parentPair.key)) {
+              if (parentKeyNames.includes(parentPair.key.value as string)) {
+                  resultRange = node.range ? [node.range[0], node.range[1]] : null;
+                  num++;
+                  return visit.BREAK;
+              }
+          }
+        }
+      }
+    }
+  });
+
+  return resultRange;
+}
 
 
-// 插值语法查找函数
-function findInnerYamlTargetByInterpolation(position: Position,document: TextDocument): Location | null {
-  	const lineStart = { line: position.line, character: 0 };
-  	const lineEnd = { line: position.line + 1, character: 0 };
-  	const lineText = document.getText({ start: lineStart, end: lineEnd });
-  	const regex = /\${([^}]+)}/;
+/**
+ * 统一的查找变量定义位置的入口函数
+ * (这个函数替换了你之前的所有三个函数)
+ * * @param position 光标位置
+ * @param document 当前文档
+ * @returns {Location | null} 定义的位置
+ */
+export function findYamlDefinition(position: Position, document: TextDocument): Location | null {
+    // 1. 获取当前行的文本
+    const lineText = document.getText({
+        start: { line: position.line, character: 0 },
+        end: { line: position.line + 1, character: 0 }
+    });
+    
+    // 2. 在光标位置识别出变量名 (无论语法是 $var 还是 ${...$var...})
+    const variableInfo = getVariableAtPosition(lineText, position);
+    
+    if (!variableInfo) {
+        return null;
+    }
 
-	const match = regex.exec(lineText);
-	  if (match) {
-		  const value = match[1];
-		  const valueStart = lineText.indexOf(value);
-		  const valueEnd = valueStart + value.length;
-		  if (position.character >= valueStart && position.character <= valueEnd) {
-			  //根据 value 查找全文中变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
-			  const varDefinition = parseDocument(document.getText());
-			  	visit(varDefinition, {
-					  Pair(_, pair, node) {
-						  if (pair.key && pair.key === '3') {return visit.REMOVE;}
-					  },
-					  Scalar(key, node, parent) {
-						  // 获取parent节点的key值判断
-						  if (parent && 'key' in parent && parent.key) {
-							  const parentKey = parent.key.toString();
-						  }
-						  if (
-							  parent &&
-							  node.type === 'PLAIN'
-						  ) {
-							  node.type = 'QUOTE_SINGLE';
-						  }
-					  }
-			  	});
-			  return {
-				  uri: document.uri.toString(),
-				  range: {
-					  start: { line: position.line, character: position.character },
-					  end: { line: position.line, character: position.character }
-				  }
-			  };
-		  }
-	  }
-	  return null;
- }
+    // 3. 解析整个 YAML 文档
+    const fullText = document.getText();
+    // 添加 try-catch 避免无效YAML导致服务崩溃
+    let doc: Document;
+    try {
+        doc = parseDocument(fullText);
+    } catch (e) {
+        console.error("YAML parsing error:", e);
+        return null;
+    }
 
- function findOuterYamlTargetByInterpolation(position: Position ,document: TextDocument): Location | null {
-  	if (position) {
-  		const lineStart = { line: position.line, character: 0 };
-  		const lineEnd = { line: position.line + 1, character: 0 };
-  		const lineText = document.getText({ start: lineStart, end: lineEnd });
-  		const regex = /\${()}/;
-  		const match = regex.exec(lineText);
-		  if (match) {
-			  const value = match[1];
-			  const valueStart = lineText.indexOf(value);
-			  const valueEnd = valueStart + value.length;
-			  if (position.character >= valueStart && position.character <= valueEnd) {
-				  //根据 value 获取变量定义位置，遍历 node 节点，查找所有 extract: 以及variables: parameters: 以下的子节点定义为 变量定义
-				  const varDefinition = parseDocument(document.getText());
-				  visit(varDefinition, {});
-			  }
-		  }
-  	}
-	  return {
-		  uri: document.uri.toString(),
-		  range: {
-			  start: { line: position.line, character: position.character },
-			  end: { line: position.line, character: position.character }
-		  }
-	  };
- }
+    if (!doc.contents) {
+        return null;
+    }
+    
+    // 4. 定义变量可能存在的容器键
+    const containerKeys = ['variables', 'extract', 'parameters'];
+    
+    // 5. 在整个文档中寻找定义
+    const definitionRange = findVariableDefinitionRange(doc, variableInfo.name, containerKeys);
+    
+    // 6. 如果找到，将偏移量转换为 Location 对象并返回
+    if (definitionRange) {
+        return {
+            uri: document.uri,
+            range: {
+                start: document.positionAt(definitionRange[0]),
+                end: document.positionAt(definitionRange[1])
+            }
+        };
+    }
 
+    return null;
+}
 // Python文件定义跳转处理
 function handlePythonDefinition(
   _document: TextDocument,

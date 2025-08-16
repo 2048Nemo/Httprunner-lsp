@@ -67,7 +67,7 @@ connection.onInitialize((params: InitializeParams) => {
 			},
 			definitionProvider: true, // 显式声明支持定义跳转
 			documentHighlightProvider: true, // 显式声明支持文档高亮
-			hoverProvider: true, // 显式声明支持悬停提示
+			hoverProvider: false, // 显式声明支持悬停提示
 		}
 	};
 	if (hasWorkspaceFolderCapability) {

@@ -11,3 +11,9 @@ tsconfig.lsif.json
 
 # Don't check in API files. These should be pulled in during install
 vscode*.d.ts
+lsp-sample/.kiro/specs/yaml-variable-definition/design.md
+lsp-sample/.kiro/specs/yaml-variable-definition/requirements.md
+lsp-sample/.kiro/specs/yaml-variable-definition/tasks.md
+lsp-sample/.kiro/steering/product.md
+lsp-sample/.kiro/steering/structure.md
+lsp-sample/.kiro/steering/tech.md
