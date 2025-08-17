@@ -1,6 +1,6 @@
 import { Connection, DefinitionParams, Location, Position } from 'vscode-languageserver';
 import { TextDocuments } from 'vscode-languageserver/node';
-import {parseDocument,  visit,Document,Pair,isScalar} from 'yaml';
+import { parseDocument, visit,Document,Pair,isScalar} from 'yaml';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -8,6 +8,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DebugTalkIndexer } from '../component/debugtalkIndexer';
 import { IServerContext } from '../component/serverContext';
 import { YamlDocumentManager } from '../component/yamlDocumentManager';
+import { LspConfig } from '../util/lspConfig';
 
 export function definitionRouter(
   iServerContext: IServerContext
@@ -24,7 +25,8 @@ export function definitionRouter(
       position: position,
       document: document,
       debugtalkIndexer: iServerContext.indexer,
-      yamlDocManager: iServerContext.yamlDocManager
+      yamlDocManager: iServerContext.yamlDocManager,
+      lspConfig: iServerContext.lspConfig
     };
     switch (document.languageId) {
       case 'yaml':
@@ -54,6 +56,7 @@ interface definitionPO{
   document: TextDocument;
   debugtalkIndexer: DebugTalkIndexer;
   yamlDocManager: YamlDocumentManager;
+  lspConfig: LspConfig;
 }
 
 // YAML variable definition handler - simplified implementation
@@ -96,9 +99,7 @@ function handlePathFileDefinition(definitionPO:definitionPO): Location | null{
 	if (!targetValue) {
 		return null;
 	}
-	const docUri = URI.parse(definitionPO.document.uri);
-	const workspaceFolder = path.dirname(docUri.fsPath);
-	const targetPath = path.resolve(workspaceFolder, targetValue);
+	const targetPath = path.resolve(definitionPO.lspConfig.testsPath, targetValue);
 
 	if (!fs.existsSync(targetPath)) {
 		return null;

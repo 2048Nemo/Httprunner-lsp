@@ -1,7 +1,5 @@
 import { Location } from 'vscode-languageserver/node';
-import { URI } from 'vscode-uri';
 import * as fs from 'fs';
-import * as path from 'path';
 
 // 定义索引中存储的数据结构
 export interface FunctionInfo {
@@ -13,26 +11,26 @@ export interface FunctionInfo {
 export class DebugTalkIndexer {
     // Map 的值现在是 FunctionInfo 对象
     private functionIndex = new Map<string, FunctionInfo>();
-    private debugtalkUri: string | null = null;
+    private debugtalkPath: string ;
     private workspaceRoot: string;
 
-    constructor(workspaceRoot: string) {
+    constructor(workspaceRoot:string,debugtalkPath: string) {
+        this.debugtalkPath = debugtalkPath;
+        //TODO 这里赋值仅仅是为了方便后面做扩展，也就是兜底策略，让 workspace 路径全局搜索所有py 函数，方便查找
         this.workspaceRoot = workspaceRoot;
         this.rebuildIndex();
     }
 
     public rebuildIndex(): void {
-        const filePath = path.join(this.workspaceRoot, 'debugtalk.py');
-        this.debugtalkUri = URI.file(filePath).toString();
         this.functionIndex.clear();
 
-        if (!fs.existsSync(filePath)) {
+        if (!fs.existsSync(this.debugtalkPath)) {
             console.log('debugtalk.py not found. Index is empty.');
             return;
         }
 
         console.log('Rebuilding index for debugtalk.py with comments...');
-        const fileContent = fs.readFileSync(filePath, 'utf-8');
+        const fileContent = fs.readFileSync(this.debugtalkPath, 'utf-8');
         const lines = fileContent.split(/\r?\n/);
         const functionRegex = /^\s*def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
 
@@ -67,7 +65,7 @@ export class DebugTalkIndexer {
 
                 const info: FunctionInfo = {
                     location: {
-                        uri: this.debugtalkUri,
+                        uri: this.debugtalkPath,
                         range: {
                             start: { line: i, character: charIndex },
                             end: { line: i, character: charIndex + functionName.length }

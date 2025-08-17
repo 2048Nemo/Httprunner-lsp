@@ -12,6 +12,7 @@ import {
 	ServerOptions,
 	TransportKind
 } from 'vscode-languageclient/node';
+import { activateHrunCommand } from './command/hrun';
 
 let client: LanguageClient;
 
@@ -51,6 +52,8 @@ export function activate(context: ExtensionContext) {
 
 	// Start the client. This will also launch the server
 	client.start();
+	
+	activateHrunCommand(context);
 }
 
 export function deactivate(): Thenable<void> | undefined {

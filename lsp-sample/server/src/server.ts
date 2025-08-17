@@ -29,6 +29,7 @@ import { hoverRouter } from './features/onHover';
 import { DebugTalkIndexer } from './component/debugtalkIndexer'; // 引入我们的索引器
 import { YamlDocumentManager } from './component/yamlDocumentManager'; // 引入新的管理器
 import { IServerContext } from './component/serverContext'; // 引入服务上下文接口
+import { LspConfig } from './util/lspConfig';
 
 
 // Create a connection for the server, using Node's IPC as a transport.
@@ -45,7 +46,6 @@ let hasDiagnosticRelatedInformationCapability = false;
 // --- 全局实例 ---
 // 在服务器生命周期内只会创建一次
 let iServerContext :IServerContext;
-
 
 connection.onInitialize((params: InitializeParams) => {
 	const capabilities = params.capabilities;
@@ -65,15 +65,23 @@ connection.onInitialize((params: InitializeParams) => {
 	);
 
 	const workspaceRoot = URI.parse(params.workspaceFolders![0].uri).fsPath;
+	//项目根目录下存在 Httprunner-Lsp.yaml 则读取配置
+
     // --- 只执行一次的初始化 ---
     console.log("Language server is initializing ONCE.");
+
+	const lspConfig = new LspConfig(workspaceRoot);// 初始化 LSP 配置
+	//这里的 debugtalkIndexer 初始化依靠 lsp配置，需要放在后面初始化 
+	const indexer =  new DebugTalkIndexer(lspConfig.workspaceRoot,lspConfig.debugtalkPath);
+
 	iServerContext= {
 		connection,
 		documents,
-		// 使用工作区根目录初始化索引器和文档管理器
-		indexer: new DebugTalkIndexer(workspaceRoot),
+		indexer,
 		yamlDocManager: new YamlDocumentManager(),
+		lspConfig
 	};
+
 
 	const result: InitializeResult = {
 		capabilities: {

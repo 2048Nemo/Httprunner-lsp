@@ -23,6 +23,35 @@
 	],
 	"main": "./client/out/extension",
 	"contributes": {
+		"commands": [
+			{
+				"command": "my-hrun-extension.runHrunScript",
+				"title": "使用 hrun 运行",
+				"category": "Hrun"
+			}
+		],
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "my-hrun-extension.runHrunScript",
+					"when": "editorTextFocus"
+				}
+			],
+			"editor/context": [
+				{
+					"when": "resourceLangId == yaml",
+					"command": "my-hrun-extension.runHrunScript",
+					"group": "navigation@1"
+				}
+			],
+			"explorer/context": [
+				{
+					"when": "resourceExtname == .yml || resourceExtname == .yaml",
+					"command": "my-hrun-extension.runHrunScript",
+					"group": "navigation@1"
+				}
+			]
+		},
 		"configuration": {
 			"type": "object",
 			"title": "Example configuration",
