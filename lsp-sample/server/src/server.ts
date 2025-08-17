@@ -25,8 +25,11 @@ import {
 import { URI } from 'vscode-uri';
 import { definitionRouter } from './features/definition';
 import { documentHighlightRouter } from './features/highlight';
-import { DebugTalkIndexer } from './utils/debugtalkIndexer'; // 引入我们的索引器
-import { YamlDocumentManager } from './features/yamlDocumentManager'; // 引入新的管理器
+import { hoverRouter } from './features/onHover';
+import { DebugTalkIndexer } from './component/debugtalkIndexer'; // 引入我们的索引器
+import { YamlDocumentManager } from './component/yamlDocumentManager'; // 引入新的管理器
+import { IServerContext } from './component/serverContext'; // 引入服务上下文接口
+
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -40,9 +43,8 @@ let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 
 // --- 全局实例 ---
-// 这两个实例在服务器生命周期内只会创建一次
-let indexer: DebugTalkIndexer;
-let yamlDocManager: YamlDocumentManager;
+// 在服务器生命周期内只会创建一次
+let iServerContext :IServerContext;
 
 
 connection.onInitialize((params: InitializeParams) => {
@@ -65,8 +67,13 @@ connection.onInitialize((params: InitializeParams) => {
 	const workspaceRoot = URI.parse(params.workspaceFolders![0].uri).fsPath;
     // --- 只执行一次的初始化 ---
     console.log("Language server is initializing ONCE.");
-    indexer = new DebugTalkIndexer(workspaceRoot);
-    yamlDocManager = new YamlDocumentManager();
+	iServerContext= {
+		connection,
+		documents,
+		// 使用工作区根目录初始化索引器和文档管理器
+		indexer: new DebugTalkIndexer(workspaceRoot),
+		yamlDocManager: new YamlDocumentManager(),
+	};
 
 	const result: InitializeResult = {
 		capabilities: {
@@ -82,7 +89,7 @@ connection.onInitialize((params: InitializeParams) => {
 			},
 			definitionProvider: true, // 显式声明支持定义跳转
 			documentHighlightProvider: true, // 显式声明支持文档高亮
-			hoverProvider: false, // 显式声明支持悬停提示
+			hoverProvider: true, // 显式声明支持悬停提示
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -106,7 +113,8 @@ connection.onInitialized(() => {
 		});
 	}
 	documentHighlightRouter(connection, documents);
-	definitionRouter(connection, documents,indexer);
+	definitionRouter(iServerContext);
+	hoverRouter(iServerContext);
 });
 
 // The example settings
@@ -157,20 +165,20 @@ function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
 // 当一个新文档被打开时触发
 documents.onDidOpen(change => {
     console.log(`Document opened: ${change.document.uri}`);
-    yamlDocManager.update(change.document);
+    iServerContext.yamlDocManager.update(change.document);
 });
 
 // 当已打开的文档内容改变时触发
 documents.onDidChangeContent(change => {
     console.log(`Document changed: ${change.document.uri}`);
-    yamlDocManager.update(change.document);
+    iServerContext.yamlDocManager.update(change.document);
     // 在这里可以触发实时的语法检查等
 });
 
 // 当文档被关闭时触发
 documents.onDidClose(change => {
     console.log(`Document closed: ${change.document.uri}`);
-    yamlDocManager.remove(change.document.uri);
+    iServerContext.yamlDocManager.remove(change.document.uri);
     // 清除该文件的错误诊断
     connection.sendDiagnostics({ uri: change.document.uri, diagnostics: [] });
 });

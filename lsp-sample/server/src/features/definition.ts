@@ -5,83 +5,98 @@ import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { DebugTalkIndexer } from '../utils/debugtalkIndexer';
+import { DebugTalkIndexer } from '../component/debugtalkIndexer';
+import { IServerContext } from '../component/serverContext';
+import { YamlDocumentManager } from '../component/yamlDocumentManager';
 
 export function definitionRouter(
-  connection: Connection,
-  documents: TextDocuments<TextDocument>,
-  debugtalkindexer: DebugTalkIndexer
+  iServerContext: IServerContext
 ) {
-  connection.onDefinition(async (params: DefinitionParams): Promise<Location | null> => {
-    const document = documents.get(params.textDocument.uri);
+  iServerContext.connection.onDefinition(async (params: DefinitionParams): Promise<Location | null> => {
+    const document = iServerContext.documents.get(params.textDocument.uri);
     if (!document) {
       return null;
     }
-
+    const position = params.position;
+    const definitionPO: definitionPO = {
+      connection: iServerContext.connection,
+      documents: iServerContext.documents,
+      position: position,
+      document: document,
+      debugtalkIndexer: iServerContext.indexer,
+      yamlDocManager: iServerContext.yamlDocManager
+    };
     switch (document.languageId) {
       case 'yaml':
       case 'yml':
-        connection.console.log('Processing YAML definition request');
-        connection.console.log(`Handling YAML definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
-        return handleVariableDefinition(document, params.position, connection,debugtalkindexer);
+        definitionPO.connection.console.log('Processing YAML definition request');
+        definitionPO.connection.console.log(`Handling YAML definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
+        return handleVariableDefinition(definitionPO);
       case 'python':
-		connection.console.log('Processing Python definition request');
-		connection.console.log(`Handling Python definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
-		return handlePythonDefinition(document, params.position);
-	  case 'env':
-		connection.console.log('Processing .env definition request');
-		connection.console.log(`Handling .env definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
-		return handleEnvDefinition(document, params.position);
-		default:
+		    definitionPO.connection.console.log('Processing Python definition request');
+		    definitionPO.connection.console.log(`Handling Python definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
+		    return handlePythonDefinition(definitionPO);
+	    case 'env':
+		    definitionPO.connection.console.log('Processing .env definition request');
+		    definitionPO.connection.console.log(`Handling .env definition: ${document.uri} at position: ${params.position.line}:${params.position.character}`);
+		    return handleEnvDefinition(definitionPO);
+		  default:
         return null;
     }
   });
 }
 
+// 专用于处理 onDefinition 跳转的接口传参对象
+interface definitionPO{
+  connection: Connection;
+  documents: TextDocuments<TextDocument>;
+  position: Position;
+  document: TextDocument;
+  debugtalkIndexer: DebugTalkIndexer;
+  yamlDocManager: YamlDocumentManager;
+}
+
 // YAML variable definition handler - simplified implementation
 function handleVariableDefinition(
-  document: TextDocument,
-  position: Position,
-  connection: Connection,
-  debugtalkIndexer: DebugTalkIndexer
+definitionPO: definitionPO
 ): Location | null {
   try {
-    connection.console.log('Attempting to find variable definition');
+    definitionPO.connection.console.log('Attempting to find variable definition');
     //查找文件跳转
-    const path =handlePathFileDefinition(position, document);
+    const path =handlePathFileDefinition(definitionPO);
     if(path){
-      connection.console.log('Found path file definition: ' + path.uri);
+      definitionPO.connection.console.log('Found path file definition: ' + path.uri);
       return path;
     }
     //查找变量定义
-    const variable =findYamlVaribleDefinition(position, document);
+    const variable =findYamlVaribleDefinition(definitionPO);
 	  if(variable){
-      connection.console.log('Found variable definition: ' + variable.uri);
+      definitionPO.connection.console.log('Found variable definition: ' + variable.uri);
       return variable;
     }
-    const debugtalk =findDebugtalkDefinition(position, document,debugtalkIndexer);
+    const debugtalk =findDebugtalkDefinition(definitionPO);
     if (debugtalk) {
-      connection.console.log('Found debugtalk definition: ' + debugtalk.uri);
+      definitionPO.connection.console.log('Found debugtalk definition: ' + debugtalk.uri);
       return debugtalk;
     }
     return null;
   } catch (error) {
     if (error instanceof Error) {
-      connection.console.error('Variable definition search failed: ' + error.message);
+      definitionPO.connection.console.error('Variable definition search failed: ' + error.message);
     } else {
-      connection.console.error('Variable definition search failed: ' + String(error));
+      definitionPO.connection.console.error('Variable definition search failed: ' + String(error));
     }
     return null;
   }
 }
 
 // 示例：处理路径文件之间跳转
-function handlePathFileDefinition( position: Position, document: TextDocument): Location | null{
-	const targetValue = findYamlTargetByPosition(position, document);
+function handlePathFileDefinition(definitionPO:definitionPO): Location | null{
+	const targetValue = findYamlTargetByPosition(definitionPO.position,definitionPO.document);
 	if (!targetValue) {
 		return null;
 	}
-	const docUri = URI.parse(document.uri);
+	const docUri = URI.parse(definitionPO.document.uri);
 	const workspaceFolder = path.dirname(docUri.fsPath);
 	const targetPath = path.resolve(workspaceFolder, targetValue);
 
@@ -160,7 +175,6 @@ function getVariableAtPosition(lineText: string, position: Position): { name: st
  */
 function findVariableDefinitionRange(doc: Document, keyName: string, parentKeyNames: string[]): [number, number] | null {
 	let resultRange: [number, number] | null = null;
-  let num = 0;
   visit(doc, {
     Scalar(key, node, path) {
       if (node.value === keyName && key === 'key') {
@@ -172,7 +186,6 @@ function findVariableDefinitionRange(doc: Document, keyName: string, parentKeyNa
           if(parentPair && parentPair instanceof Pair && isScalar(parentPair.key)) {
               if (parentKeyNames.includes(parentPair.key.value as string)) {
                   resultRange = node.range ? [node.range[0], node.range[1]] : null;
-                  num++;
                   return visit.BREAK;
               }
           }
@@ -192,22 +205,22 @@ function findVariableDefinitionRange(doc: Document, keyName: string, parentKeyNa
  * @param document 当前文档
  * @returns {Location | null} 定义的位置
  */
-export function findYamlVaribleDefinition(position: Position, document: TextDocument): Location | null {
+export function findYamlVaribleDefinition(definitionPO:definitionPO): Location | null {
     // 1. 获取当前行的文本
-    const lineText = document.getText({
-        start: { line: position.line, character: 0 },
-        end: { line: position.line + 1, character: 0 }
+    const lineText = definitionPO.document.getText({
+        start: { line: definitionPO.position.line, character: 0 },
+        end: { line: definitionPO.position.line + 1, character: 0 }
     });
     
     // 2. 在光标位置识别出变量名 (无论语法是 $var 还是 ${...$var...})
-    const variableInfo = getVariableAtPosition(lineText, position);
+    const variableInfo = getVariableAtPosition(lineText, definitionPO.position);
     
     if (!variableInfo) {
         return null;
     }
 
     // 3. 解析整个 YAML 文档
-    const fullText = document.getText();
+    const fullText = definitionPO.document.getText();
     // 添加 try-catch 避免无效YAML导致服务崩溃
     let doc: Document;
     try {
@@ -230,10 +243,10 @@ export function findYamlVaribleDefinition(position: Position, document: TextDocu
     // 6. 如果找到，将偏移量转换为 Location 对象并返回
     if (definitionRange) {
         return {
-            uri: document.uri,
+            uri: definitionPO.document.uri,
             range: {
-                start: document.positionAt(definitionRange[0]),
-                end: document.positionAt(definitionRange[1])
+                start: definitionPO.document.positionAt(definitionRange[0]),
+                end: definitionPO.document.positionAt(definitionRange[1])
             }
         };
     }
@@ -242,16 +255,14 @@ export function findYamlVaribleDefinition(position: Position, document: TextDocu
 }
 // Python文件定义跳转处理
 function handlePythonDefinition(
-  _document: TextDocument,
-  _position: Position
+_definitionPO: definitionPO
 ): Location | null {
   return null;
 }
 
 // .env文件定义跳转处理
 function handleEnvDefinition(
-  _document: TextDocument,
-  _position: Position
+_definitionPO: definitionPO
 ): Location | null {
   return null;
 }
@@ -262,11 +273,11 @@ function handleEnvDefinition(
  * @param document 当前文档
  * @returns {Location | null} 在 debugtalk.py 中的位置
  */
-export function findDebugtalkDefinition(position: Position, document: TextDocument, debugtalkindexer: DebugTalkIndexer): Location | null {
+export function findDebugtalkDefinition(definitionPO:definitionPO): Location | null {
   // 1. 获取当前行的文本
-  const lineText = document.getText({
-    start: { line: position.line, character: 0 },
-    end: { line: position.line + 1, character: 0 }
+  const lineText = definitionPO.document.getText({
+    start: { line: definitionPO.position.line, character: 0 },
+    end: { line: definitionPO.position.line + 1, character: 0 }
   });
 
   // 2. 使用新的正则表达式，并添加 'g' 标志以遍历行内所有匹配项
@@ -283,7 +294,7 @@ export function findDebugtalkDefinition(position: Position, document: TextDocume
     const expressionEnd = expressionStart + match[0].length; // "}" 的结束位置
 
     // 4. 检查光标是否在当前匹配的 ${...} 表达式的范围内
-    if (position.character >= expressionStart && position.character <= expressionEnd) {
+    if (definitionPO.position.character >= expressionStart && definitionPO.position.character <= expressionEnd) {
       console.log(`光标位于函数 "${functionName}" 的调用上。`);
 
       // 5. 构造指向 debugtalk.py 文件的 URI 和一个起始位置
@@ -292,9 +303,9 @@ export function findDebugtalkDefinition(position: Position, document: TextDocume
       // const workspaceFolder = path.dirname(URI.parse(document.uri).fsPath);
       // const targetUri = URI.file(path.join(workspaceFolder, 'debugtalk.py')).toString();
 
-      const result = debugtalkindexer.getDefinition(functionName);
+      const result = definitionPO.debugtalkIndexer.getDefinitionInfo(functionName);
       console.log(`查找函数 "${functionName}" 的定义位置: `, result);
-      return result ? result : null;
+      return result ? result.location : null;
     }
   }
 
