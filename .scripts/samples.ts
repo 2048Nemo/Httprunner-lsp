@@ -334,74 +334,10 @@ export const samples: Sample[] = [
  */
 export const lspSamples: Sample[] = [
 	{
-		description: 'Snippet Sample',
-		path: 'snippet-sample',
-		guide: '/api/language-extensions/snippet-guide',
-		apis: [],
-		contributions: ['snippets']
-	},
-	{
-		description: 'Language Configuration Sample',
-		path: 'language-configuration-sample',
-		guide: '/api/language-extensions/language-configuration-guide',
-		apis: [],
-		contributions: ['languages']
-	},
-	{
-		description: 'LSP Sample',
-		path: 'lsp-sample',
+		description: 'httprunner-lsp',
+		path: 'Httprunner-lsp',
 		guide: '/api/language-extensions/language-server-extension-guide',
 		apis: [],
 		contributions: []
-	},
-	{
-		description: 'LSP Log Streaming Sample',
-		path: 'lsp-log-streaming-sample',
-		guide: null,
-		apis: [],
-		contributions: []
-	},
-	{
-		description: 'LSP Multi Root Server Sample',
-		path: 'lsp-multi-server-sample',
-		guide:
-			'https://github.com/Microsoft/vscode/wiki/Extension-Authoring:-Adopting-Multi-Root-Workspace-APIs#language-client--language-server',
-		apis: [],
-		contributions: []
-	},
-	{
-		description: 'LSP Web Extension Sample',
-		path: 'lsp-web-extension-sample',
-		guide: '/api/language-extensions/language-server-extension-guide',
-		apis: [],
-		contributions: []
-	},
-	{
-		description: 'LSP User Input Sample',
-		path: 'lsp-user-input-sample',
-		guide: null,
-		apis: [],
-		contributions: []
-	},
-	{
-		description: 'LSP Embedded Language Service',
-		path: 'lsp-embedded-language-service',
-		guide: null,
-		apis: [],
-		contributions: []
-	},
-	{
-		description: 'LSP Embedded Request Forwarding',
-		path: 'lsp-embedded-request-forwarding',
-		guide: null,
-		apis: [],
-		contributions: []
-	},
-	{
-		description: 'Wasm language server',
-		path: 'wasm-language-server',
-		guide: null,
-		apis: [],
-		contributions: []
-	},
+	}
 ];
