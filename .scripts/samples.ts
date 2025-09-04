@@ -340,5 +340,4 @@ export const lspSamples: Sample[] = [
 		apis: [],
 		contributions: []
 	}
-	}
 ];
