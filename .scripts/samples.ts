@@ -335,9 +335,10 @@ export const samples: Sample[] = [
 export const lspSamples: Sample[] = [
 	{
 		description: 'httprunner-lsp',
-		path: 'Httprunner-lsp',
+		path: 'Httprunner-Lsp',
 		guide: '/api/language-extensions/language-server-extension-guide',
 		apis: [],
 		contributions: []
+	}
 	}
 ];
